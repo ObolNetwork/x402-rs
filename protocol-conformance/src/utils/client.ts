@@ -11,7 +11,7 @@ import { base58 } from "@scure/base";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { baseSepoliaPreconf } from "viem/chains";
 import { ERC20_ABI, ERC20_APPROVE_ABI } from "./erc-abi";
-import { UptoEvmSchemeClient } from "./upto-evm-scheme";
+import { UptoEvmScheme } from "@x402/evm/upto/client";
 
 export async function invokeRustClient(
   endpoint: URL,
@@ -22,7 +22,7 @@ export async function invokeRustClient(
     | { solana: string },
 ) {
   const binaryPath = new URL(
-    "target/debug/x402-reqwest-example",
+    "target/debug/x402-reqwest-exact",
     WORKSPACE_ROOT,
   ).pathname;
   let env: any = {
@@ -70,6 +70,51 @@ export async function invokeRustClient(
   return new TextDecoder().decode(stdout);
 }
 
+export async function invokeRustClientUptoEip155(
+  endpoint: URL,
+  privateKey: string,
+) {
+  const binaryPath = new URL(
+    "target/debug/x402-reqwest-upto-eip155",
+    WORKSPACE_ROOT,
+  ).pathname;
+  const env: any = {
+    ...process.env,
+    ENDPOINT: endpoint.href,
+    EVM_PRIVATE_KEY: privateKey,
+    EVM_RPC_URL:
+      process.env.BASE_SEPOLIA_RPC_URL ??
+      "https://sepolia.base.org",
+  };
+  const childProcess = spawn(binaryPath, {
+    cwd: WORKSPACE_ROOT.pathname,
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
+  const prefix = `[rs-upto-client]`;
+  let stdout = Uint8Array.from([]);
+  childProcess.stdout.on("data", (data: Uint8Array) => {
+    stdout = new Uint8Array([...stdout, ...data]);
+    printLines(process.stdout, prefix, data);
+  });
+  childProcess.stderr.on("data", (data: Uint8Array) => {
+    printLines(process.stderr, prefix, data);
+  });
+  const exitP = Promise.withResolvers<void>();
+  const onError = (err: Error) => {
+    childProcess.off("exit", onExit);
+    exitP.reject(err);
+  };
+  const onExit = () => {
+    childProcess.off("error", onError);
+    exitP.resolve();
+  };
+  childProcess.on("error", onError);
+  childProcess.on("exit", onExit);
+  await exitP.promise;
+  return new TextDecoder().decode(stdout);
+}
+
 export const EIP155_ACCOUNT = privateKeyToAccount(
   config.baseSepolia.buyerPrivateKey,
 );
@@ -81,7 +126,7 @@ export async function makeFetch(
   switch (chain) {
     case "eip155": {
       client.register("eip155:*", new ExactEvmScheme(EIP155_ACCOUNT));
-      client.register("eip155:*", new UptoEvmSchemeClient(EIP155_ACCOUNT));
+      client.register("eip155:*", new UptoEvmScheme(EIP155_ACCOUNT));
       break;
     }
     case "solana": {

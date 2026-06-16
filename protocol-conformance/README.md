@@ -1,6 +1,6 @@
-# x402 Protocol Compliance Test Harness
+# x402 Protocol Conformance Test Harness
 
-This directory contains a comprehensive protocol compliance test harness for the x402-rs project. It tests various combinations of client, server, and facilitator implementations across multiple chains and protocol versions.
+This directory contains a comprehensive protocol conformance test harness for the x402-rs project. It tests various combinations of client, server, and facilitator implementations across multiple chains and protocol versions.
 
 ## Overview
 
@@ -24,9 +24,9 @@ All commands below should be run from the **repository root** (where the main [`
 
 1. **Install Node.js dependencies:**
    ```bash
-   just compliance-install
+   just conformance-install
    ```
-   This runs `pnpm install` in the `protocol-compliance/` directory.
+   This runs `pnpm install` in the `protocol-conformance/` directory.
 
 2. **Build Rust binaries:**
    ```bash
@@ -35,15 +35,15 @@ All commands below should be run from the **repository root** (where the main [`
    This builds all crates including:
    - `x402-facilitator` (facilitator binary)
    - `x402-axum-example` (Rust server example)
-   - `x402-reqwest-example` (Rust client example)
+   - `x402-reqwest-exact` (Rust client example)
 
 3. **Configure environment:**
    ```bash
-   cp protocol-compliance/.env.example protocol-compliance/.env
-   # Edit protocol-compliance/.env with your RPC URLs and private keys
+   cp protocol-conformance/.env.example protocol-conformance/.env
+   # Edit protocol-conformance/.env with your RPC URLs and private keys
    ```
 
-   Required environment variables (in `protocol-compliance/.env`):
+   Required environment variables (in `protocol-conformance/.env`):
    - `BASE_SEPOLIA_RPC_URL` - Base Sepolia RPC endpoint
    - `BASE_SEPOLIA_BUYER_PRIVATE_KEY` - Private key for test buyer (with `0x` prefix)
    - `BASE_SEPOLIA_FACILITATOR_PRIVATE_KEY` - Private key for facilitator
@@ -56,23 +56,23 @@ All commands below should be run from the **repository root** (where the main [`
 All commands are run from the **repository root** using the main [`justfile`](justfile):
 
 ```bash
-# Run all protocol compliance tests (builds + runs tests)
-just compliance-test-all
+# Run all protocol conformance tests (builds + runs tests)
+just conformance
 
 # Run all tests without rebuilding
-just compliance-test
+just conformance-test
 
 # Type check the TypeScript code
-just compliance-typecheck
+just conformance-typecheck
 
 # Install dependencies
-just compliance-install
+just conformance-install
 ```
 
-For more granular control, you can run commands directly from the `protocol-compliance/` directory:
+For more granular control, you can run commands directly from the `protocol-conformance/` directory:
 
 ```bash
-cd protocol-compliance
+cd protocol-conformance
 
 # Run all tests
 pnpm test
@@ -94,26 +94,33 @@ pnpm typecheck
 
 The test harness supports these axes of configuration (not all combinations are valid or interesting):
 
-| x402 Version | Client    | Server    | Facilitator | Namespace | Scheme | Extension                                   |
-|--------------|-----------|-----------|-------------|-----------|--------|---------------------------------------------|
-| v1           | Rust (rs) | Rust (rs) | Local (rs)  | eip155    | exact  | (none)                                      |
-| v2           | TS (ts)   | TS (ts)   | TS (@x402)  | solana    |        | eip2612GasSponsoring (eip155 + exact)       |
-|              |           |           | Remote      | aptos     |        | erc20ApprovalGasSponsoring (eip155 + exact) |
-|              |           |           |             |           |        | sign-in-with-x                              |
-|              |           |           |             |           |        | bazaar (v2 only)                            |
+| x402 Version | Client | Server | Facilitator | Namespace | Scheme | Extension                                   |
+|--------------|--------|--------|-------------|-----------|--------|---------------------------------------------|
+| v1           | Rust   | Rust   | Local       | eip155    | exact  | (none)                                      |
+| v2           | TS     | TS     | TS          | solana    | upto   | eip2612GasSponsoring (eip155 + exact)       |
+|              |        |        | Remote      | aptos     |        | erc20ApprovalGasSponsoring (eip155 + exact) |
+|              |        |        |             |           |        | sign-in-with-x                              |
+|              |        |        |             |           |        | bazaar (v2 only)                            |
 
 ### Current Test Coverage
 
-| # | Combination              | Client     | Server     | Facilitator | Chain  | Status |
-|---|--------------------------|------------|------------|-------------|--------|--------|
-| 1 | v2-eip155-exact-rs-rs-rs | Rust       | Rust       | Rust        | eip155 | ✅      |
-| 2 | v2-eip155-exact-ts-rs-rs | TypeScript | Rust       | Rust        | eip155 | ✅      |
-| 3 | v2-eip155-exact-ts-ts-rs | TypeScript | TypeScript | Rust        | eip155 | ✅      |
-| 4 | v2-eip155-exact-rs-ts-rs | Rust       | TypeScript | Rust        | eip155 | ✅      |
-| 5 | v2-solana-exact-rs-rs-rs | Rust       | Rust       | Rust        | Solana | ✅      |
-| 6 | v2-solana-exact-ts-rs-rs | TypeScript | Rust       | Rust        | Solana | ✅      |
-| 7 | v2-solana-exact-rs-ts-rs | Rust       | TypeScript | Rust        | Solana | ✅      |
-| 8 | v2-solana-exact-ts-ts-rs | TypeScript | TypeScript | Rust        | Solana | ✅      |
+| Combination                      | Client     | Server     | Facilitator | Chain  | Modification  | Status |
+|----------------------------------|------------|------------|-------------|--------|---------------|--------|
+| v2-eip155-exact-rs-rs-rs         | Rust       | Rust       | Rust        | eip155 |               | ✅      |
+| v2-eip155-exact-rs-rs-rs.permit2 | Rust       | Rust       | Rust        | eip155 | exact permit2 | ✅      |
+| v2-eip155-exact-ts-rs-rs         | TypeScript | Rust       | Rust        | eip155 |               | ✅      |
+| v2-eip155-exact-ts-rs-rs.permit2 | TypeScript | Rust       | Rust        | eip155 | exact permit2 | ✅      |
+| v2-eip155-exact-ts-ts-rs         | TypeScript | TypeScript | Rust        | eip155 |               | ✅      |
+| v2-eip155-exact-ts-ts-rs.permit2 | TypeScript | TypeScript | Rust        | eip155 | exact permit2 | ✅      |
+| v2-eip155-exact-rs-ts-rs         | Rust       | TypeScript | Rust        | eip155 |               | ✅      |
+| v2-eip155-exact-rs-ts-rs.permit2 | Rust       | TypeScript | Rust        | eip155 | exact permit2 | ✅      |
+| v2-eip155-upto-ts-rs-rs          | TypeScript | Rust       | Rust        | eip155 |               | ✅      |
+| v2-eip155-upto-ts-ts-rs          | TypeScript | TypeScript | Rust        | eip155 |               | ✅      |
+| v2-solana-exact-rs-rs-rs         | Rust       | Rust       | Rust        | Solana |               | ✅      |
+| v2-solana-exact-ts-rs-rs         | TypeScript | Rust       | Rust        | Solana |               | ✅      |
+| v2-solana-exact-rs-ts-rs         | Rust       | TypeScript | Rust        | Solana |               | ✅      |
+| v2-solana-exact-ts-ts-rs         | TypeScript | TypeScript | Rust        | Solana |               | ✅      |
+| v2-solana-exact-ts-ts-rs         | TypeScript | TypeScript | Rust        | Solana |               | ✅      |
 
 > **Note:** Combination 3 (TS Client + TS Server + Rust Facilitator) is critical for testing the Rust facilitator's compatibility with the canonical TypeScript implementation, isolating any quirks in the Rust facilitator.
 
@@ -214,7 +221,7 @@ export class RSFacilitatorHandle {
 #### 3. Client Utilities ([`src/utils/client.ts`](src/utils/client.ts))
 
 **Rust Client (`invokeRustClient`):**
-- Spawns `target/debug/x402-reqwest-example` as one-shot process
+- Spawns `target/debug/x402-reqwest-exact` as one-shot process
 - Returns stdout for verification
 - Supports EIP155 and Solana private keys
 
@@ -233,7 +240,7 @@ All Rust binaries are managed through `ProcessHandle` ([`src/utils/process-handl
 ## Project Structure
 
 ```
-protocol-compliance/
+protocol-conformance/
 ├── src/
 │   ├── tests/                    # Test files
 │   │   ├── v2-eip155-exact-*.ts  # EIP155 tests
@@ -322,7 +329,7 @@ v2-eip155-exact-rs-rs-rs.bazaar.test.ts
 
 **Facilitator fails to start:**
 - Check that `target/debug/x402-facilitator` exists (run `just build-all` from repo root)
-- Verify environment variables are set in `protocol-compliance/.env`
+- Verify environment variables are set in `protocol-conformance/.env`
 - Check RPC URLs are accessible
 
 **Port conflicts:**
@@ -343,7 +350,7 @@ v2-eip155-exact-rs-rs-rs.bazaar.test.ts
 
 Run tests with verbose output:
 ```bash
-cd protocol-compliance && pnpm test -- --verbose
+cd protocol-conformance && pnpm test -- --verbose
 ```
 
 ## Contributing

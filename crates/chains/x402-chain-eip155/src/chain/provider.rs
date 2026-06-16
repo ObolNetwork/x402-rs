@@ -35,7 +35,7 @@ pub type InnerFiller = JoinFill<
     JoinFill<BlobGasFiller, JoinFill<NonceFiller<PendingNonceManager>, ChainIdFiller>>,
 >;
 
-const REQUIRED_CONTRACT_ADDRESSES: LazyLock<Vec<Address>> = LazyLock::new(|| {
+static REQUIRED_CONTRACT_ADDRESSES: LazyLock<Vec<Address>> = LazyLock::new(|| {
     vec![
         VALIDATOR_ADDRESS,
         PERMIT2_ADDRESS,
@@ -182,7 +182,7 @@ impl FromConfig<Eip155ChainConfig> for Eip155ChainProvider {
         // Build the filler stack: Gas -> BlobGas -> Nonce -> ChainId
         // This mirrors the InnerFiller type but with our custom nonce manager
         let filler = JoinFill::new(
-            GasFiller,
+            GasFiller::default(),
             JoinFill::new(
                 BlobGasFiller::default(),
                 JoinFill::new(
@@ -267,7 +267,7 @@ impl Eip155MetaTransactionProvider for Eip155ChainProvider {
         &self,
         tx: MetaTransaction,
     ) -> Result<TransactionReceipt, Self::Error> {
-        let from_address = self.next_signer_address();
+        let from_address = tx.from.unwrap_or_else(|| self.next_signer_address());
         let mut txr = TransactionRequest::default()
             .with_to(tx.to)
             .with_from(from_address)
@@ -349,6 +349,33 @@ impl ChainProviderOps for Eip155ChainProvider {
     }
 }
 
+/// Provides access to the EIP-155 signer addresses held by a facilitator provider.
+///
+/// Implementations return the set of addresses whose private keys the provider
+/// controls and can use to submit on-chain transactions. The facilitator exposes
+/// one of these addresses to clients via the `supported()` endpoint so they can
+/// embed it in the Permit2 witness, ensuring only this facilitator can settle the
+/// authorized payment.
+pub trait Eip155SignerAddresses {
+    /// Returns an iterator over the signer addresses available on this provider.
+    fn signer_addresses(&self) -> Vec<Address>;
+}
+
+impl<T> Eip155SignerAddresses for Arc<T>
+where
+    T: Eip155SignerAddresses,
+{
+    fn signer_addresses(&self) -> Vec<Address> {
+        (**self).signer_addresses()
+    }
+}
+
+impl Eip155SignerAddresses for Eip155ChainProvider {
+    fn signer_addresses(&self) -> Vec<Address> {
+        (*self.signer_addresses).clone()
+    }
+}
+
 /// Meta-transaction parameters: target address, calldata, and required confirmations.
 pub struct MetaTransaction {
     /// Target contract address.
@@ -357,6 +384,8 @@ pub struct MetaTransaction {
     pub calldata: Bytes,
     /// Number of block confirmations to wait for.
     pub confirmations: u64,
+    /// Optional sender address.
+    pub from: Option<Address>,
 }
 
 impl MetaTransaction {
@@ -365,7 +394,13 @@ impl MetaTransaction {
             to,
             calldata,
             confirmations: 1,
+            from: None,
         }
+    }
+
+    pub fn with_from(mut self, from: Address) -> Self {
+        self.from = Some(from);
+        self
     }
 }
 
