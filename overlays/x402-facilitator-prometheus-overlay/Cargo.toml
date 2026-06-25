@@ -1,0 +1,54 @@
+[package]
+name = "x402-facilitator-prometheus-overlay"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+keywords.workspace = true
+description = "Operator-owned Prometheus overlay for x402 Facilitator"
+readme = "README.md"
+publish = false
+
+[[bin]]
+name = "x402-facilitator-prometheus-overlay"
+path = "src/main.rs"
+
+[features]
+default = ["telemetry", "chain-eip155", "chain-solana"]
+telemetry = [
+    "dep:tracing",
+    "x402-facilitator/telemetry",
+    "x402-types/telemetry",
+    "x402-facilitator-local/telemetry",
+    "x402-chain-eip155?/telemetry",
+    "x402-chain-solana?/telemetry",
+    "x402-chain-aptos?/telemetry",
+]
+chain-aptos = ["dep:x402-chain-aptos", "x402-facilitator/chain-aptos"]
+chain-eip155 = ["dep:x402-chain-eip155", "x402-facilitator/chain-eip155"]
+chain-solana = ["dep:x402-chain-solana", "x402-facilitator/chain-solana"]
+full = ["telemetry", "chain-aptos", "chain-eip155", "chain-solana"]
+
+[dependencies]
+x402-facilitator = { path = "../../facilitator", default-features = false }
+x402-types = { workspace = true }
+x402-facilitator-local = { workspace = true }
+x402-chain-eip155 = { workspace = true, features = ["facilitator"], optional = true }
+x402-chain-solana = { workspace = true, features = ["facilitator"], optional = true }
+x402-chain-aptos = { workspace = true, features = ["facilitator"], optional = true }
+
+axum = { workspace = true }
+dotenvy = { workspace = true }
+prometheus = "0.13"
+rustls = { version = "0.23", features = ["ring"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
