@@ -250,3 +250,53 @@ fn receiver_authorizer_signs_and_recovers_for_voucher_digest() {
         .unwrap();
     assert_eq!(recovered, voucher_signer_address);
 }
+
+// ---------------------------------------------------------------------------
+// Cross-implementation EIP-712 golden vectors (viem <-> alloy <-> hand-rolled).
+//
+// Contributed by @Adelagric (issue #92, Adelagric/x402-batch-settlement): the
+// canonical vectors the official x402 client SDK signs with (viem
+// `hashTypedData`), independently reproduced by a hand-rolled
+// keccak256 + abi.encode implementation. They pin `alloy_sol_types`' typed-data
+// hashing byte-for-byte against viem — a one-byte drift in any type string, the
+// domain, or the struct encoding changes one of these hashes and fails here,
+// instead of silently rejecting real client signatures at the facilitator. The
+// two assertions transitively pin the typehashes too.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn channel_id_matches_viem_reference_vector() {
+    // Vector generated with viem `hashTypedData` over the canonical
+    // `x402 Batch Settlement` EIP-712 domain on Base Sepolia (chainId 84532).
+    // Independently reproduced by a hand-rolled keccak256+abi.encode
+    // implementation; both equal the constant below — so the assertion pins
+    // `alloy_sol_types` against viem.
+    let cfg = ChannelConfig {
+        payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".parse().unwrap(),
+        payer_authorizer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".parse().unwrap(),
+        receiver: "0x19ee5100D3a1e687F85B952bd3FbEc108Ab6A8d7".parse().unwrap(),
+        receiver_authorizer: "0xd407e409E34E0b9afb99EcCeb609bDbcD5e7f1bf".parse().unwrap(),
+        token: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".parse().unwrap(),
+        withdraw_delay: 900,
+        salt: B256::ZERO,
+    };
+    assert_eq!(
+        compute_channel_id(&cfg, BASE_SEPOLIA_CHAIN_ID),
+        b256!("0x5fafb915f0dbee350d7f84d91802dea47e8e3a71929c3cd79da161c291fb28bd"),
+    );
+}
+
+#[test]
+fn voucher_digest_matches_viem_reference_vector() {
+    // Same vector source: viem `hashTypedData` over
+    // `Voucher(bytes32 channelId,uint128 maxClaimableAmount)` under the
+    // `x402 Batch Settlement` domain on Base Sepolia. channel_id is the one
+    // pinned by `channel_id_matches_viem_reference_vector`;
+    // max_claimable_amount = 1000.
+    let channel_id =
+        b256!("0x5fafb915f0dbee350d7f84d91802dea47e8e3a71929c3cd79da161c291fb28bd");
+    assert_eq!(
+        compute_voucher_digest(channel_id, U128::from(1_000u128), BASE_SEPOLIA_CHAIN_ID),
+        b256!("0xa2874adbecca0abb1884b4ac1c100e3906d25208ad0c9e6a8fcf9790ccfa2246"),
+    );
+}
