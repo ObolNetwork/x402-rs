@@ -7955,6 +7955,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot",
+ "protobuf",
  "thiserror 1.0.69",
 ]
 
@@ -8051,6 +8052,12 @@ checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
  "prost 0.14.3",
 ]
+
+[[package]]
+name = "protobuf"
+version = "2.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "psl-types"
@@ -13966,6 +13973,27 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry 0.33.0",
  "tracing-subscriber 0.3.23",
+ "x402-types",
+]
+
+[[package]]
+name = "x402-facilitator-prometheus-overlay"
+version = "2.0.1"
+dependencies = [
+ "axum 0.8.9",
+ "dotenvy",
+ "prometheus",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "tower-http",
+ "tracing",
+ "x402-chain-aptos",
+ "x402-chain-eip155",
+ "x402-chain-solana",
+ "x402-facilitator",
+ "x402-facilitator-local",
  "x402-types",
 ]
 
