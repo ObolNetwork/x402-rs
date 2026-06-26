@@ -272,11 +272,21 @@ fn channel_id_matches_viem_reference_vector() {
     // implementation; both equal the constant below — so the assertion pins
     // `alloy_sol_types` against viem.
     let cfg = ChannelConfig {
-        payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".parse().unwrap(),
-        payer_authorizer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8".parse().unwrap(),
-        receiver: "0x19ee5100D3a1e687F85B952bd3FbEc108Ab6A8d7".parse().unwrap(),
-        receiver_authorizer: "0xd407e409E34E0b9afb99EcCeb609bDbcD5e7f1bf".parse().unwrap(),
-        token: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".parse().unwrap(),
+        payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+            .parse()
+            .unwrap(),
+        payer_authorizer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+            .parse()
+            .unwrap(),
+        receiver: "0x19ee5100D3a1e687F85B952bd3FbEc108Ab6A8d7"
+            .parse()
+            .unwrap(),
+        receiver_authorizer: "0xd407e409E34E0b9afb99EcCeb609bDbcD5e7f1bf"
+            .parse()
+            .unwrap(),
+        token: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+            .parse()
+            .unwrap(),
         withdraw_delay: 900,
         salt: B256::ZERO,
     };
@@ -293,8 +303,7 @@ fn voucher_digest_matches_viem_reference_vector() {
     // `x402 Batch Settlement` domain on Base Sepolia. channel_id is the one
     // pinned by `channel_id_matches_viem_reference_vector`;
     // max_claimable_amount = 1000.
-    let channel_id =
-        b256!("0x5fafb915f0dbee350d7f84d91802dea47e8e3a71929c3cd79da161c291fb28bd");
+    let channel_id = b256!("0x5fafb915f0dbee350d7f84d91802dea47e8e3a71929c3cd79da161c291fb28bd");
     assert_eq!(
         compute_voucher_digest(channel_id, U128::from(1_000u128), BASE_SEPOLIA_CHAIN_ID),
         b256!("0xa2874adbecca0abb1884b4ac1c100e3906d25208ad0c9e6a8fcf9790ccfa2246"),
