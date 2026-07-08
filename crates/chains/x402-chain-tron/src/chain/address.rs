@@ -71,7 +71,9 @@ impl TronAddress {
 
 impl Debug for TronAddress {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("TronAddress").field(&self.as_base58()).finish()
+        f.debug_tuple("TronAddress")
+            .field(&self.as_base58())
+            .finish()
     }
 }
 
