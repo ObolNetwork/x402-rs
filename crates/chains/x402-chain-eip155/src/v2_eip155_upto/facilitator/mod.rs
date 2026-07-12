@@ -17,6 +17,8 @@ use x402_types::proto::v2;
 use x402_types::scheme::{
     ExtensionKey, X402SchemeFacilitator, X402SchemeFacilitatorBuilder, X402SchemeFacilitatorError,
 };
+#[cfg(feature = "telemetry")]
+use x402_types::util::telemetry::record_payment_context;
 
 use crate::V2Eip155Upto;
 use crate::chain::{Eip155MetaTransactionProvider, Eip155SignerAddresses};
@@ -95,11 +97,29 @@ where
     P::Inner: Provider,
     Eip155ExactError: From<P::Error>,
 {
+    #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all, err, fields(
+        otel.kind = "internal",
+        chain_id = tracing::field::Empty,
+        payer = tracing::field::Empty,
+        pay_to = tracing::field::Empty
+    )))]
     async fn verify(
         &self,
         request: &proto::VerifyRequest,
     ) -> Result<proto::VerifyResponse, X402SchemeFacilitatorError> {
         let verify_request = types::VerifyRequest::try_from(request)?;
+        #[cfg(feature = "telemetry")]
+        {
+            let authorization = &verify_request
+                .payment_payload
+                .payload
+                .permit_2_authorization;
+            record_payment_context(
+                &verify_request.payment_payload.accepted.network,
+                authorization.from,
+                verify_request.payment_requirements.pay_to,
+            );
+        }
         let verify_response = permit2::verify_permit2_payment(
             &self.provider,
             self.eip2612_gas_sponsoring,
@@ -110,11 +130,29 @@ where
         Ok(verify_response.into())
     }
 
+    #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all, err, fields(
+        otel.kind = "internal",
+        chain_id = tracing::field::Empty,
+        payer = tracing::field::Empty,
+        pay_to = tracing::field::Empty
+    )))]
     async fn settle(
         &self,
         request: &proto::SettleRequest,
     ) -> Result<proto::SettleResponse, X402SchemeFacilitatorError> {
         let settle_request = types::SettleRequest::try_from(request)?;
+        #[cfg(feature = "telemetry")]
+        {
+            let authorization = &settle_request
+                .payment_payload
+                .payload
+                .permit_2_authorization;
+            record_payment_context(
+                &settle_request.payment_payload.accepted.network,
+                authorization.from,
+                settle_request.payment_requirements.pay_to,
+            );
+        }
         let settle_response = permit2::settle_permit2_payment(
             &self.provider,
             self.eip2612_gas_sponsoring,

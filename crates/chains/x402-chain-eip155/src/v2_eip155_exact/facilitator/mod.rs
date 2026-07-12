@@ -17,6 +17,8 @@ use x402_types::proto::v2;
 use x402_types::scheme::{
     ExtensionKey, X402SchemeFacilitator, X402SchemeFacilitatorBuilder, X402SchemeFacilitatorError,
 };
+#[cfg(feature = "telemetry")]
+use x402_types::util::telemetry::record_payment_context;
 
 use crate::V2Eip155Exact;
 use crate::chain::Eip155MetaTransactionProvider;
@@ -106,6 +108,12 @@ where
     P::Inner: Provider,
     Eip155ExactError: From<P::Error>,
 {
+    #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all, err, fields(
+        otel.kind = "internal",
+        chain_id = tracing::field::Empty,
+        payer = tracing::field::Empty,
+        pay_to = tracing::field::Empty
+    )))]
     async fn verify(
         &self,
         request: &proto::VerifyRequest,
@@ -117,6 +125,12 @@ where
                 payment_requirements,
                 x402_version: _,
             } => {
+                #[cfg(feature = "telemetry")]
+                record_payment_context(
+                    &payment_payload.accepted.network,
+                    payment_payload.payload.authorization.from,
+                    payment_requirements.pay_to,
+                );
                 eip3009::verify_eip3009_payment(
                     &self.provider,
                     &payment_payload,
@@ -129,6 +143,15 @@ where
                 payment_requirements,
                 x402_version: _,
             } => {
+                #[cfg(feature = "telemetry")]
+                {
+                    let authorization = &payment_payload.payload.permit_2_authorization;
+                    record_payment_context(
+                        &payment_payload.accepted.network,
+                        authorization.from,
+                        payment_requirements.pay_to,
+                    );
+                }
                 permit2::verify_permit2_payment(
                     &self.provider,
                     self.eip2612_gas_sponsoring,
@@ -141,6 +164,12 @@ where
         Ok(verify_response.into())
     }
 
+    #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all, err, fields(
+        otel.kind = "internal",
+        chain_id = tracing::field::Empty,
+        payer = tracing::field::Empty,
+        pay_to = tracing::field::Empty
+    )))]
     async fn settle(
         &self,
         request: &proto::SettleRequest,
@@ -152,6 +181,12 @@ where
                 payment_requirements,
                 x402_version: _,
             } => {
+                #[cfg(feature = "telemetry")]
+                record_payment_context(
+                    &payment_payload.accepted.network,
+                    payment_payload.payload.authorization.from,
+                    payment_requirements.pay_to,
+                );
                 eip3009::settle_eip3009_payment(
                     &self.provider,
                     &payment_payload,
@@ -164,6 +199,15 @@ where
                 payment_payload,
                 x402_version: _,
             } => {
+                #[cfg(feature = "telemetry")]
+                {
+                    let authorization = &payment_payload.payload.permit_2_authorization;
+                    record_payment_context(
+                        &payment_payload.accepted.network,
+                        authorization.from,
+                        payment_requirements.pay_to,
+                    );
+                }
                 permit2::settle_permit2_payment(
                     &self.provider,
                     self.eip2612_gas_sponsoring,

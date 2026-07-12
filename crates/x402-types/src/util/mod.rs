@@ -10,6 +10,8 @@ pub mod b64;
 pub mod decimal_u256;
 pub mod lit_str;
 pub mod money_amount;
+#[cfg(feature = "telemetry")]
+pub mod telemetry;
 
 pub use b64::*;
 pub use decimal_u256::*;
