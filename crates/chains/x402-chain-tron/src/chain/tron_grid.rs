@@ -3,6 +3,7 @@
 
 use alloy_primitives::Bytes;
 use alloy_sol_types::SolCall;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Formatter;
@@ -36,6 +37,119 @@ impl TronGridHttp {
     pub fn with_client(rpc_url: Url, client: reqwest::Client) -> Self {
         Self { rpc_url, client }
     }
+
+    /// POSTs `body` as JSON to `endpoint` (relative to `rpc_url`) and decodes the
+    /// response as `TResp`.
+    ///
+    /// Centralizes request/response handling for all TronGrid calls so that:
+    /// - every outgoing request is logged (endpoint + URL) when `telemetry` is enabled;
+    /// - transport failures, non-2xx statuses, and JSON decode failures are all logged
+    ///   with as much context as possible (status code and a truncated response body),
+    ///   instead of a bare "can not decode TronGrid response".
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip(self, body),
+            fields(
+                otel.kind = "client",
+                trongrid.endpoint = endpoint,
+                http.status_code = tracing::field::Empty,
+            )
+        )
+    )]
+    async fn send_json<TReq, TResp>(
+        &self,
+        endpoint: &str,
+        body: &TReq,
+    ) -> Result<TResp, TronGridLikeError>
+    where
+        TReq: Serialize + ?Sized,
+        TResp: DeserializeOwned,
+    {
+        let url = self.rpc_url.join(endpoint)?;
+
+        let response = self
+            .client
+            .post(url.clone())
+            .json(body)
+            .send()
+            .await
+            .map_err(|err| {
+                #[cfg(feature = "telemetry")]
+                tracing::error!(
+                    trongrid.endpoint = endpoint,
+                    trongrid.url = %url,
+                    error = %err,
+                    "TronGrid request failed to send"
+                );
+                TronGridLikeError::from(err)
+            })?;
+
+        let status = response.status();
+        #[cfg(feature = "telemetry")]
+        tracing::Span::current().record("http.status_code", status.as_u16());
+
+        let text = response.text().await.map_err(|err| {
+            #[cfg(feature = "telemetry")]
+            tracing::error!(
+                trongrid.endpoint = endpoint,
+                http.status_code = status.as_u16(),
+                error = %err,
+                "failed to read TronGrid response body"
+            );
+            TronGridLikeError::from(err)
+        })?;
+
+        if !status.is_success() {
+            #[cfg(feature = "telemetry")]
+            tracing::error!(
+                trongrid.endpoint = endpoint,
+                http.status_code = status.as_u16(),
+                body = %truncate_body(&text),
+                "TronGrid returned a non-success HTTP status"
+            );
+            return Err(TronGridLikeError::HttpStatus {
+                endpoint: endpoint.to_string(),
+                status: status.as_u16(),
+                body: truncate_body(&text),
+            });
+        }
+
+        serde_json::from_str::<TResp>(&text).map_err(|err| {
+            #[cfg(feature = "telemetry")]
+            tracing::error!(
+                trongrid.endpoint = endpoint,
+                http.status_code = status.as_u16(),
+                body = %truncate_body(&text),
+                error = %err,
+                "failed to decode TronGrid response"
+            );
+            TronGridLikeError::ParsingError {
+                endpoint: endpoint.to_string(),
+                status: status.as_u16(),
+                reason: err.to_string(),
+                body: truncate_body(&text),
+            }
+        })
+    }
+}
+
+/// Truncates a response body for logging/error messages so a huge (or unexpected
+/// HTML/binary) payload doesn't blow up logs or error strings.
+fn truncate_body(body: &str) -> String {
+    const MAX_LEN: usize = 10000;
+    if body.len() > MAX_LEN {
+        let boundary = (0..=MAX_LEN)
+            .rfind(|&i| body.is_char_boundary(i))
+            .unwrap_or(0);
+        format!(
+            "{}... [truncated, {} bytes total]",
+            &body[..boundary],
+            body.len()
+        )
+    } else {
+        body.to_string()
+    }
 }
 
 impl fmt::Debug for TronGridHttp {
@@ -52,12 +166,34 @@ pub enum TronGridLikeError {
     /// The HTTP request itself failed (network, URL parsing, etc).
     #[error("TronGrid transport: {0}")]
     Transport(String),
-    /// The response body didn't have the expected shape.
-    #[error("failed to parse TronGrid response: {0}")]
-    ParsingError(String),
+    /// TronGrid responded, but with a non-2xx HTTP status. Carries a truncated body so
+    /// the cause (rate limiting, maintenance page, auth failure, etc.) is visible.
+    #[error("TronGrid HTTP {endpoint} returned status {status}: {body}")]
+    HttpStatus {
+        endpoint: String,
+        status: u16,
+        body: String,
+    },
+    /// The response body didn't have the expected shape. Carries the endpoint, HTTP
+    /// status, the underlying (de)serialization error, and a truncated body so the
+    /// actual TronGrid payload is visible in logs instead of just "can not decode".
+    #[error(
+        "failed to parse TronGrid response from {endpoint} (status {status}): {reason}; body: {body}"
+    )]
+    ParsingError {
+        endpoint: String,
+        status: u16,
+        reason: String,
+        body: String,
+    },
     /// TronGrid returned a well-formed response reporting failure.
     #[error("TronGrid returned an error: {0}")]
     ReportedError(String),
+    /// The response was valid JSON matching the expected envelope, but a nested field
+    /// couldn't be decoded further (e.g. ABI-decoding `constant_result`, or a required
+    /// field was absent).
+    #[error("failed to decode TronGrid response: {0}")]
+    Decode(String),
 }
 
 impl From<url::ParseError> for TronGridLikeError {
@@ -74,7 +210,7 @@ impl From<reqwest::Error> for TronGridLikeError {
 
 impl From<TronGridParsingError> for TronGridLikeError {
     fn from(value: TronGridParsingError) -> Self {
-        Self::ParsingError(value.to_string())
+        Self::Decode(value.to_string())
     }
 }
 
@@ -138,6 +274,18 @@ pub trait TronGridLike {
 }
 
 impl TronGridLike for TronGridHttp {
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip(self, calldata),
+            fields(
+                otel.kind = "client",
+                trongrid.method = "wallet/triggerconstantcontract",
+                trongrid.contract_address = %contract_address,
+                trongrid.owner_address = tracing::field::Empty,
+            )
+        )
+    )]
     async fn wallet_trigger_constant_contract<TCalldata>(
         &self,
         contract_address: TronAddress,
@@ -147,7 +295,11 @@ impl TronGridLike for TronGridHttp {
     where
         TCalldata: SolCall + Send,
     {
-        let url = self.rpc_url.join("wallet/triggerconstantcontract")?;
+        #[cfg(feature = "telemetry")]
+        if let Some(from) = &from {
+            tracing::Span::current()
+                .record("trongrid.owner_address", tracing::field::display(from));
+        }
         let calldata = Bytes::from(calldata.abi_encode());
         let body = CallConstantRequest {
             owner_address: from.unwrap_or_default(),
@@ -157,17 +309,32 @@ impl TronGridLike for TronGridHttp {
             visible: true,
         };
         let resp: CallConstantResponse = self
-            .client
-            .post(url)
-            .json(&body)
-            .send()
-            .await?
-            .json()
+            .send_json("wallet/triggerconstantcontract", &body)
             .await?;
-        let decoded = resp.into_abi_decoded::<TCalldata>()?;
+        let decoded = resp.into_abi_decoded::<TCalldata>().inspect_err(|err| {
+            #[cfg(feature = "telemetry")]
+            tracing::error!(
+                trongrid.method = "wallet/triggerconstantcontract",
+                trongrid.contract_address = %contract_address,
+                error = %err,
+                "failed to ABI-decode TronGrid triggerconstantcontract result"
+            );
+        })?;
         Ok(decoded)
     }
 
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip(self, calldata),
+            fields(
+                otel.kind = "client",
+                trongrid.method = "wallet/triggersmartcontract",
+                trongrid.contract_address = %contract,
+                trongrid.owner_address = %owner,
+            )
+        )
+    )]
     async fn wallet_trigger_smart_contract<TCalldata>(
         &self,
         contract: TronAddress,
@@ -177,7 +344,6 @@ impl TronGridLike for TronGridHttp {
     where
         TCalldata: SolCall,
     {
-        let url = self.rpc_url.join("wallet/triggersmartcontract")?;
         let body = TriggerSmartContractRequest {
             owner_address: owner,
             contract_address: contract,
@@ -186,42 +352,69 @@ impl TronGridLike for TronGridHttp {
             call_value: 0,
             visible: true,
         };
-        let resp: TriggerSmartContractResponse = self
-            .client
-            .post(url)
-            .json(&body)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let resp: TriggerSmartContractResponse =
+            self.send_json("wallet/triggersmartcontract", &body).await?;
 
-        let transaction = resp.try_into()?;
+        let transaction = resp.try_into().inspect_err(|err| {
+            #[cfg(feature = "telemetry")]
+            tracing::error!(
+                trongrid.method = "wallet/triggersmartcontract",
+                trongrid.contract_address = %contract,
+                error = %err,
+                "TronGrid triggersmartcontract call failed"
+            );
+        })?;
         Ok(transaction)
     }
 
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip(self, tx),
+            fields(
+                otel.kind = "client",
+                trongrid.method = "wallet/broadcasttransaction",
+                trongrid.tx_id = %tx.tx_id,
+            )
+        )
+    )]
     async fn wallet_broadcast_transaction(
         &self,
         tx: TronTransaction,
     ) -> Result<TronTxId, TronGridLikeError> {
-        let url = self.rpc_url.join("wallet/broadcasttransaction")?;
-        let resp: BroadcastResponse = self.client.post(url).json(&tx).send().await?.json().await?;
-        let tx_id = resp.try_into()?;
+        #[cfg(feature = "telemetry")]
+        let submitted_tx_id = tx.tx_id.clone();
+        let resp: BroadcastResponse = self.send_json("wallet/broadcasttransaction", &tx).await?;
+        let tx_id = resp.try_into().inspect_err(|err| {
+            #[cfg(feature = "telemetry")]
+            tracing::error!(
+                trongrid.method = "wallet/broadcasttransaction",
+                trongrid.tx_id = %submitted_tx_id,
+                error = %err,
+                "TronGrid broadcasttransaction failed"
+            );
+        })?;
         Ok(tx_id)
     }
 
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip(self),
+            fields(
+                otel.kind = "client",
+                trongrid.method = "wallet/gettransactioninfobyid",
+                trongrid.tx_id = %tx_id,
+            )
+        )
+    )]
     async fn wallet_get_transaction_info_by_id(
         &self,
         tx_id: &TronTxId,
     ) -> Result<TransactionInfoResponse, TronGridLikeError> {
-        let url = self.rpc_url.join("wallet/gettransactioninfobyid")?;
         let body = GetTransactionInfoRequest { value: tx_id };
         let resp: TransactionInfoResponse = self
-            .client
-            .post(url)
-            .json(&body)
-            .send()
-            .await?
-            .json()
+            .send_json("wallet/gettransactioninfobyid", &body)
             .await?;
         Ok(resp)
     }
