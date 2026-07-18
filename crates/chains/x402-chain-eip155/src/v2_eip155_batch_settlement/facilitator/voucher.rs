@@ -113,7 +113,7 @@ where
 /// are accepted, matching the upstream behaviour. Smart-wallet wrapped
 /// signatures (EIP-6492) are rejected on the ECDSA path; those are reserved
 /// for the EIP-1271 fallback.
-fn recover_ecdsa_and_match(
+pub(crate) fn recover_ecdsa_and_match(
     signature: &[u8],
     digest: &B256,
     expected_signer: Address,
