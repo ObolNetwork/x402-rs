@@ -12,10 +12,10 @@ use x402_types::scheme::X402SchemeFacilitatorError;
 use x402_types::timestamp::UnixTimestamp;
 
 use crate::chain::contracts;
-use crate::chain::provider::{
-    TronChainProviderError, TronChainProviderLike, TronTxId, read_balance_of,
-};
-use crate::chain::{TronAddress, TronChainProvider, TronChainReference};
+use crate::chain::provider::{TronChainProviderError, TronChainProviderLike, read_balance_of};
+use crate::chain::tron_grid::WaitForTxLike;
+use crate::chain::types::TronTxId;
+use crate::chain::{TronAddress, TronChainReference};
 use crate::v2_tron_exact::types::{Eip3009Payload, Eip3009PaymentRequirements};
 use crate::v2_tron_exact::{Eip3009Authorization, Eip3009PaymentPayload};
 
@@ -30,20 +30,20 @@ sol! {
     }
 }
 
-pub async fn verify_eip3009_payment(
-    provider: &TronChainProvider,
+/// Verifies an EIP-3009 payment: requirements match, signature recovers to `from`,
+/// balance covers the amount, the nonce is unused, and simulation of
+/// `transferWithAuthorization` succeeds.
+pub async fn verify_eip3009_payment<P>(
+    provider: &P,
     payment_payload: &Eip3009PaymentPayload,
     payment_requirements: &Eip3009PaymentRequirements,
-) -> Result<v2::VerifyResponse, X402SchemeFacilitatorError> {
+) -> Result<v2::VerifyResponse, X402SchemeFacilitatorError>
+where
+    P: TronChainProviderLike,
+{
     let accepted = &payment_payload.accepted;
     assert_requirements_match(accepted, payment_requirements)?;
-    assert_valid_payment(
-        provider,
-        &provider.chain_reference,
-        accepted,
-        payment_payload,
-    )
-    .await?;
+    assert_valid_payment(provider, provider.chain(), accepted, payment_payload).await?;
 
     let auth = &payment_payload.payload.authorization;
     let required_amount = accepted.amount;
@@ -92,11 +92,16 @@ pub async fn verify_eip3009_payment(
     )))
 }
 
-pub async fn settle_eip3009_payment(
-    provider: &TronChainProvider,
+/// Re-verifies, then submits `transferWithAuthorization` on-chain, and waits for
+/// confirmation.
+pub async fn settle_eip3009_payment<P>(
+    provider: &P,
     payment_payload: &v2::PaymentPayload<Eip3009PaymentRequirements, Eip3009Payload>,
     payment_requirements: &Eip3009PaymentRequirements,
-) -> Result<v2::SettleResponse, X402SchemeFacilitatorError> {
+) -> Result<v2::SettleResponse, X402SchemeFacilitatorError>
+where
+    P: TronChainProviderLike + WaitForTxLike,
+{
     verify_eip3009_payment(provider, payment_payload, payment_requirements).await?;
 
     let accepted = &payment_payload.accepted;
@@ -130,6 +135,8 @@ pub async fn settle_eip3009_payment(
 
 // ── EIP-3009 on-chain reads ───────────────────────────────────────────────────
 
+/// Reads `token.authorizationState(authorizer_evm, nonce)` — `true` if the nonce
+/// has already been consumed.
 pub async fn read_authorization_state<P: TronChainProviderLike>(
     provider: &P,
     token: TronAddress,
@@ -148,6 +155,7 @@ pub async fn read_authorization_state<P: TronChainProviderLike>(
         .await
 }
 
+/// The `transferWithAuthorization` call parameters, decoded from a payment payload.
 pub struct Eip3009Transfer {
     pub token: TronAddress,
     pub from: Address,
@@ -159,6 +167,8 @@ pub struct Eip3009Transfer {
     pub signature: Bytes,
 }
 
+/// Dry-runs `transferWithAuthorization` as a constant call to check it would succeed,
+/// without spending gas or consuming the nonce.
 pub async fn simulate_transfer_with_authorization<P: TronChainProviderLike>(
     provider: &P,
     transfer: Eip3009Transfer,
@@ -182,6 +192,7 @@ pub async fn simulate_transfer_with_authorization<P: TronChainProviderLike>(
     }
 }
 
+/// Submits `transferWithAuthorization` on-chain, signed by the facilitator.
 pub async fn build_and_submit_eip3009_tx<P: TronChainProviderLike>(
     provider: &P,
     transfer: Eip3009Transfer,
@@ -202,6 +213,7 @@ pub async fn build_and_submit_eip3009_tx<P: TronChainProviderLike>(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Recovers the signer address from a TIP-712-signed `TransferWithAuthorization`.
 fn recover_eip3009_signer(
     domain: &Eip712Domain,
     auth: &Eip3009Authorization,
@@ -219,6 +231,8 @@ fn recover_eip3009_signer(
     recover_address(hash.as_ref(), signature)
 }
 
+/// Recovers the EVM address that produced a 65-byte `r||s||v` ECDSA signature over
+/// `hash`, using the same `v = recovery_id + 27` convention as Ethereum.
 pub(crate) fn recover_address(hash: &[u8; 32], signature: &Bytes) -> Result<Address, String> {
     use k256::ecdsa::{RecoveryId, Signature as K256Sig, VerifyingKey};
 
@@ -242,6 +256,8 @@ pub(crate) fn recover_address(hash: &[u8; 32], signature: &Bytes) -> Result<Addr
     Ok(Address::from_slice(&keccak[12..]))
 }
 
+/// Checks that the client-provided `accepted` requirements exactly match what the
+/// resource server actually requires.
 pub fn assert_requirements_match<T: PartialEq>(
     accepted: &T,
     requirements: &T,
@@ -253,6 +269,9 @@ pub fn assert_requirements_match<T: PartialEq>(
     }
 }
 
+/// Validates an EIP-3009 authorization against protocol rules: matching chain,
+/// facilitator is not the payer, recipient/amount/timing match `accepted`, and the
+/// signature recovers to the claimed `from` address.
 pub async fn assert_valid_payment<P>(
     provider: &P,
     chain: &TronChainReference,

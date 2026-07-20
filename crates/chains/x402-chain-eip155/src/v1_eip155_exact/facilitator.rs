@@ -27,6 +27,8 @@ use x402_types::scheme::{
     X402SchemeFacilitator, X402SchemeFacilitatorBuilder, X402SchemeFacilitatorError,
 };
 use x402_types::timestamp::UnixTimestamp;
+#[cfg(feature = "telemetry")]
+use x402_types::util::telemetry::record_payment_context;
 
 #[cfg(feature = "telemetry")]
 use tracing::{Instrument, instrument};
@@ -88,6 +90,12 @@ where
     P::Inner: Provider,
     Eip155ExactError: From<P::Error>,
 {
+    #[cfg_attr(feature = "telemetry", instrument(skip_all, err, fields(
+        otel.kind = "internal",
+        chain_id = tracing::field::Empty,
+        payer = tracing::field::Empty,
+        pay_to = tracing::field::Empty
+    )))]
     async fn verify(
         &self,
         request: &proto::VerifyRequest,
@@ -95,6 +103,14 @@ where
         let request = types::VerifyRequest::try_from(request)?;
         let payload = &request.payment_payload;
         let requirements = &request.payment_requirements;
+        #[cfg(feature = "telemetry")]
+        let chain_id = self.provider.chain_id();
+        #[cfg(feature = "telemetry")]
+        record_payment_context(
+            &chain_id,
+            payload.payload.authorization.from,
+            requirements.pay_to,
+        );
         let (contract, payment, eip712_domain) = assert_valid_payment(
             self.provider.inner(),
             self.provider.chain(),
@@ -109,6 +125,12 @@ where
         Ok(v1::VerifyResponse::valid(payer.to_string()).into())
     }
 
+    #[cfg_attr(feature = "telemetry", instrument(skip_all, err, fields(
+        otel.kind = "internal",
+        chain_id = tracing::field::Empty,
+        payer = tracing::field::Empty,
+        pay_to = tracing::field::Empty
+    )))]
     async fn settle(
         &self,
         request: &proto::SettleRequest,
@@ -116,6 +138,14 @@ where
         let request = types::SettleRequest::try_from(request)?;
         let payload = &request.payment_payload;
         let requirements = &request.payment_requirements;
+        #[cfg(feature = "telemetry")]
+        let chain_id = self.provider.chain_id();
+        #[cfg(feature = "telemetry")]
+        record_payment_context(
+            &chain_id,
+            payload.payload.authorization.from,
+            requirements.pay_to,
+        );
         let (contract, payment, eip712_domain) = assert_valid_payment(
             self.provider.inner(),
             self.provider.chain(),

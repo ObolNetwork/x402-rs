@@ -96,19 +96,19 @@ method.
 
 Payment requirements specify an `assetTransferMethod`:
 
-- **`eip3009`**: Direct `transferWithAuthorization` for tokens with native EIP-3009 support (e.g. USDT on TRON)
-- **`permit2`**: Universal proxy using SUN.io's canonical Permit2 contract
+- **`eip3009`**: Direct `transferWithAuthorization` for tokens with native EIP-3009 support
+- **`permit2`**: Universal proxy using SUN.io's canonical Permit2 contract (e.g. USDT on TRON, as it does not support EIP-3009 yet)
 
 ## TRON vs EVM Differences
 
-| Aspect | TRON | EVM (EIP-155) |
-|---|---|---|
-| Address format (wire) | Base58Check (T…) | Hex (0x…) |
-| Address in EIP-712 | EVM hex (0x…) | EVM hex (0x…) |
-| Contract wallets | ❌ Not supported | ✅ EIP-1271 / EIP-6492 |
-| RPC protocol | TronGrid HTTP REST | JSON-RPC |
-| Chain namespace | `tron:` | `eip155:` |
-| Chain reference | Last 4 bytes of genesis hash (`0x…`) | Decimal chain ID |
+| Aspect                | TRON                                 | EVM (EIP-155)         |
+|-----------------------|--------------------------------------|-----------------------|
+| Address format (wire) | Base58Check (T…)                     | Hex (0x…)             |
+| Address in EIP-712    | EVM hex (0x…)                        | EVM hex (0x…)         |
+| Contract wallets      | ❌ Not supported                      | ✅ EIP-1271 / EIP-6492 |
+| RPC protocol          | TronGrid HTTP REST                   | JSON-RPC              |
+| Chain namespace       | `tron:`                              | `eip155:`             |
+| Chain reference       | Last 4 bytes of genesis hash (`0x…`) | Decimal chain ID      |
 
 ## Configuration
 
