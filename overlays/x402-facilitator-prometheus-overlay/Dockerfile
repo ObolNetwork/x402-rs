@@ -30,7 +30,8 @@ ENV PORT=8080
 ENV CONFIG=/app/config.json
 ENV RUST_LOG=info
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+# upgrade: pick up Debian security fixes (perl, openssl) even when the base tag is cached
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
